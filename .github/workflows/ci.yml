@@ -7,7 +7,15 @@ jobs:
   build_bloscjni:
     strategy:
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-12 ]
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-latest
+            arch: aarch64
+          - os: windows-latest
+            arch: x86_64
+          - os: macos-12
+            arch: universal
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -89,13 +97,13 @@ jobs:
           rm ../src/main/resources/libbloscjni-*.dylib
 
       - name: Build CentOS7 docker (Linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest'  && matrix.arch == 'x86_64' }}
         run: |
           cd bloscjni
           docker build -t centos7-jdk8 -f Dockerfile.centos7 .
 
       - name: Build c-blosc (Linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest'  && matrix.arch == 'x86_64' }}
         run: |
           docker run -i -v$(pwd):/app -w /app/c-blosc centos7-jdk8 bash << EOF
           mkdir build
@@ -105,7 +113,7 @@ jobs:
           EOF
 
       - name: Build bloscjni (Linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest'  && matrix.arch == 'x86_64' }}
         run: |
           docker run -i -v$(pwd):/app -w /app centos7-jdk8 bash <<EOF
           cd bloscjni
@@ -113,6 +121,40 @@ jobs:
             -shared -lc -fPIC -o ../src/main/resources/libbloscjni.so -O3 \
             bloscjni.c ../c-blosc/build/blosc/libblosc.a
           EOF
+
+      - name: Install ARM64 toolchain
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            cmake
+      
+      - name: Build c-blosc (Linux ARM64)
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64' }}
+        run: |
+          cd c-blosc
+          mkdir build-arm64
+          cd build-arm64
+          cmake .. \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build . -j8
+      
+      - name: Build bloscjni (Linux ARM64)
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64' }}
+        run: |
+          cd bloscjni
+          aarch64-linux-gnu-gcc \
+            -I"$JAVA_HOME/include" \
+            -I"$JAVA_HOME/include/linux" \
+            -shared -fPIC -O3 \
+            -o ../src/main/resources/libbloscjni-linux-aarch64.so \
+            bloscjni.c ../c-blosc/build-arm64/blosc/libblosc.a          
 
       - name: Build blosc-java
         run: mvn compile
